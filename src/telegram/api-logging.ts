@@ -1,5 +1,5 @@
 import { danger } from "../globals.js";
-import { formatErrorMessage } from "../infra/errors.js";
+import { formatErrorMessage, formatUncaughtError } from "../infra/errors.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import type { RuntimeEnv } from "../runtime.js";
 
@@ -14,6 +14,14 @@ type TelegramApiLoggingParams<T> = {
 };
 
 const fallbackLogger = createSubsystemLogger("telegram/api");
+
+function isTelegramHttpError(err: unknown): err is { error?: unknown } {
+  if (!err || typeof err !== "object") {
+    return false;
+  }
+  const ctorName = (err as { constructor?: { name?: unknown } }).constructor?.name;
+  return ctorName === "HttpError" && "error" in (err as Record<string, unknown>);
+}
 
 function resolveTelegramApiLogger(runtime?: RuntimeEnv, logger?: TelegramApiLogger) {
   if (logger) {
@@ -37,8 +45,11 @@ export async function withTelegramApiErrorLogging<T>({
   } catch (err) {
     if (!shouldLog || shouldLog(err)) {
       const errText = formatErrorMessage(err);
+      const detail = isTelegramHttpError(err)
+        ? ` (detail: ${formatUncaughtError(err.error ?? err)})`
+        : "";
       const log = resolveTelegramApiLogger(runtime, logger);
-      log(danger(`telegram ${operation} failed: ${errText}`));
+      log(danger(`telegram ${operation} failed: ${errText}${detail}`));
     }
     throw err;
   }
